@@ -96,6 +96,7 @@ disabled_tests_dict: Optional[Dict[str, Any]] = None
 
 NATIVE_DEVICES = ('cpu', 'cuda', 'meta')
 
+
 class _TestParametrizer(object):
     """
     Decorator class for parametrizing a test function, yielding a set of new tests spawned
@@ -822,6 +823,26 @@ class CrossRefMode(torch.overrides.TorchFunctionMode):
         kwargs = kwargs or {}
         r = func(*args, **kwargs)
         return r
+
+TEST_WITH_TORCHDYNAMO = os.getenv('PYTORCH_TEST_WITH_DYNAMO') == '1'
+if TEST_WITH_TORCHDYNAMO:
+    import torchdynamo
+    # torchdynamo.config.trace = True
+    # torchdynamo.config.debug = True
+    torchdynamo.config.print_internal_exceptions = False
+    # TODO - Collect errors with fake tensors
+    torchdynamo.config.fake_tensor_propagation = False
+    # Do not spend time on helper functions that are called with different inputs
+    torchdynamo.config.cache_size_limit = 4
+
+def skipIfTorchDynamo(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if TEST_WITH_TORCHDYNAMO:
+            raise unittest.SkipTest("test doesn't currently with torchdynamo")
+        else:
+            fn(*args, **kwargs)
+    return wrapper
 
 # Determine whether to enable cuda memory leak check.
 # CUDA mem leak check is expensive and thus we don't want to execute it on every
@@ -1675,6 +1696,117 @@ class TypePair(UnittestPair):
 class ObjectPair(UnittestPair):
     CLS = object
 
+skip_classes = {
+    # Unknown - CI fails with memory corruption
+    "TestDict",
+    "TestPythonDispatch",
+}
+
+skip_tests = {
+    # Filename - test_functionalize.py
+    "test_metadata_change",
+
+    # Filename - test_nn.py
+    # Hooks
+    "test_module_global_forward_preforward_hook_writeable",
+    "test_module_global_hooks",
+    "test_global_and_local_hooks_order",
+    # Unknown
+    "test_spectral_norm",
+    "test_pixel_shuffle_unshuffle",
+    # Hooks
+    "test_hook_backward_writeable",
+    "test_hook_forward_preforward_writable",
+    "test_hook_no_requires_grad",
+    "test_hooks",
+    # parameters
+    "test_ParameterList",
+    "test_ParameterDict",
+    "test_parameter_assignment",
+    # Ref cycle
+    "test_load_state_dict_ref_cycle",
+    # Unknown
+    "test_embedding_bag_1D_padding_idx_cpu_float32",
+    "test_embedding_bag_1D_padding_idx_cpu_float64",
+    "test_pdist_cpu_gradgrad_unimplemented",
+    "test_rnn_pruning",
+    "test_rnn_weight_norm",
+    "test_clip_grad_norm_error_if_nonfinite_cpu",
+
+    # Filename - test_torch.py
+    "test_backward_hooks_traverse",
+    "test_dead_weak_ref",
+    "test_tensor_cycle_via_dict",
+    "test_tensor_dict_dealloc",
+    "test_tensor_weakref_dealloc",
+    "test_cpp_warnings_have_python_context_cpu",
+    "test_discontiguous_out_cumsum_cpu",
+    "test_strides_propagation_cpu",
+    "test_pickle_parameter",
+    "test_pickle_parameter_no_requires_grad",
+    # Should be easy to fix
+    "test_reversed",
+
+    # Filename - test_class_type.py
+    "test_imported_classes",
+    "test_properties",
+
+    # Filename - jit/test_tracer.py
+    "test_tracing_hooks",
+
+    # Filename - test_jit.py
+    "test_python_ivalue",
+    "test_warnings",
+    "test_cpp_module_iterator",
+    "test_while_nest_if",
+    "test_if_nest_while",
+    "test_type_annotations_repeated_list",
+    "test_zip_enumerate_modulelist",
+
+    # Filename - test_reductions.py
+    # Worth investigating
+    "test_logsumexp_dim",
+    "test_noncontiguous_all__masked_amax",
+
+    # Filename - test_view_ops.py
+    # Worth investigating
+    "test_expand",
+    "test_unsqueeze",
+
+
+    # Filename- test_pruner
+    "test_step_conv2d",
+
+    # Filename - test_misc.py
+    "test_std_lib_sys_hackery_checks",
+
+    # Filename - test/test_shape_ops.py
+    # Worth investigating
+    "test_complex_rot90",
+    "test_tolist",
+}
+
+
+def skip_dynamo(test_object):
+    test_module = test_object.__class__.__name__
+    if test_module in skip_classes:
+        return True
+
+
+    def strip_suffix(name, num):
+        splits = name.rsplit("_", num)
+        if len(splits) == num + 1:
+            return splits[0]
+        return name
+
+    test_method = test_object._testMethodName
+    test_method_stripped1 = strip_suffix(test_method, 1)
+    test_method_stripped2 = strip_suffix(test_method, 2)
+
+    if test_method in skip_tests or test_method_stripped1 in skip_tests or test_method_stripped2 in skip_tests:
+        return True
+    return False
+
 
 # This implements a variant of assertRaises/assertRaisesRegex where we first test
 # if the exception is NotImplementedError, and if so just skip the test instead
@@ -1826,7 +1958,17 @@ class TestCase(expecttest.TestCase):
             failures_before = 0 if result is None else len(result.failures)  # num tests marked as failed before starting
             errors_before = 0 if result is None else len(result.errors)  # num tests marked as errored before starting
 
-        super().run(result=result)
+
+        if TEST_WITH_TORCHDYNAMO:
+            ctx = torchdynamo.optimize("eager")
+            if skip_dynamo(self):
+                ctx = contextlib.nullcontext()
+            with ctx:
+                super().run(result=result)
+            # torchdynamo.reset()
+        else:
+            super().run(result=result)
+
         # Early terminate test if necessary.
         if self._should_stop_test_suite():
             if result.wasSuccessful():
