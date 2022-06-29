@@ -1282,6 +1282,45 @@ class TestExperimentalUtils(TestCase):
         basic_evaluation = _utils.BasicEvaluation(prof.profiler)
         self.assertFalse(basic_evaluation.compute_queue_depth())
 
+    @unittest.skipIf(not torch.cuda.is_available(), "CUDA is required")
+    def test_profiler_name_pattern(self):
+        from torch.profiler._pattern_matcher import NamePattern
+        x = torch.ones((4096, 4096), device="cuda")
+        with profile() as prof:
+            for _ in range(5):
+                x = x @ x
+                x = x + x
+        matched_events = NamePattern(prof, "aten::mm").matched_events()
+        output = "\n".join([f"{event.name()}" for event in matched_events])
+        self.assertExpectedInline(output, """\
+aten::mm
+aten::mm
+aten::mm
+aten::mm
+aten::mm""")
+
+    def test_profiler_pattern_match_helper(self):
+        from torch.profiler._pattern_matcher import Pattern
+        x = torch.ones((100, 100))
+        with profile() as prof:
+            for _ in range(5):
+                x = x @ x
+                x = x + x
+        event_tree = prof.profiler.kineto_results.experimental_event_tree()
+        pattern = Pattern(prof)
+        self.assertEqual(event_tree, pattern.siblings_of(event_tree[0]))
+        self.assertEqual(event_tree[0].children,
+                         pattern.siblings_of(event_tree[0].children[0]))
+        self.assertEqual(event_tree[0],
+                         pattern.root_of(event_tree[0].children[0].children[0]))
+        self.assertEqual(None, pattern.next_of(event_tree[-1]))
+        self.assertEqual(event_tree[1], pattern.next_of(event_tree[0]))
+        self.assertEqual(event_tree[0], pattern.prev_of(event_tree[1]))
+
+
+
+
+
 
 if __name__ == '__main__':
     run_tests()
