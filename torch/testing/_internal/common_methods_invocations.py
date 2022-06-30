@@ -69,6 +69,7 @@ if TEST_SCIPY:
 L = 20
 M = 10
 S = 5
+XS = 3
 
 # Unique value to distinguish default from anything else
 _NOTHING = object()
@@ -2629,6 +2630,8 @@ def sample_inputs_elementwise_unary(
     if not op_kwargs:
         op_kwargs = {}
 
+    _L = S if kwargs.get("small_inputs_only", False) else L
+
     low, high = op_info.domain
     low = low if low is None else low + op_info._domain_eps
     high = high if high is None else high - op_info._domain_eps
@@ -2636,7 +2639,7 @@ def sample_inputs_elementwise_unary(
         # Tensors with dim=2 for sparse compressed testing
         yield SampleInput(
             make_tensor(
-                (L, L),
+                (_L, _L),
                 device=device,
                 dtype=dtype,
                 low=low,
@@ -2647,7 +2650,7 @@ def sample_inputs_elementwise_unary(
         )
     else:
         # Creates a 1D, empty, and scalar tensor
-        for shape in ((L,), (1, 0, 3), ()):
+        for shape in ((_L,), (1, 0, 3), ()):
             yield SampleInput(
                 make_tensor(
                     shape,
@@ -3150,13 +3153,16 @@ def sample_inputs_addmv(op_info, device, dtype, requires_grad, **kwargs):
 def sample_inputs_addbmm(op_info, device, dtype, requires_grad, **kwargs):
     make_arg = partial(make_tensor, device=device, dtype=dtype, requires_grad=requires_grad)
 
+    _M = S if kwargs.get("small_inputs_only", False) else M
+    _S = XS if kwargs.get("small_inputs_only", False) else S
+
     # input_shape, batch1_shape, batch2_shape, beta_val, alpha_val, is_broadcasting
-    test_cases = [((S, M), (S, S, S), (S, S, M), 1, 1, False),
-                  ((1,), (S, S, S), (S, S, M), 1, 1, True),
-                  ((S, M), (S, S, S), (S, S, M), 0.6, 0.2, False),
-                  ((1,), (S, S, S), (S, S, M), 0.6, 0.2, True),
-                  ((), (S, S, S), (S, S, M), 1, 1, True),
-                  ((), (S, S, S), (S, S, M), 0.6, 0.2, True),
+    test_cases = [((_S, _M), (_S, _S, _S), (_S, _S, _M), 1, 1, False),
+                  ((1,), (_S, _S, _S), (_S, _S, _M), 1, 1, True),
+                  ((_S, _M), (_S, _S, _S), (_S, _S, _M), 0.6, 0.2, False),
+                  ((1,), (_S, _S, _S), (_S, _S, _M), 0.6, 0.2, True),
+                  ((), (_S, _S, _S), (_S, _S, _M), 1, 1, True),
+                  ((), (_S, _S, _S), (_S, _S, _M), 0.6, 0.2, True),
                   ]
 
     for input_shape, batch1_shape, batch2_shape, beta, alpha, is_broadcasting in test_cases:
@@ -3203,12 +3209,15 @@ def sample_inputs_addcmul_addcdiv(op_info, device, dtype, requires_grad, **kwarg
     return tuple(sample_inputs)
 
 def sample_inputs_baddbmm(op_info, device, dtype, requires_grad, **kwargs):
-    test_cases = [((S, S, M), (S, S, S), (S, S, M), 1, 1, False),
-                  ((1,), (S, S, S), (S, S, M), 1, 1, True),
-                  ((S, S, M), (S, S, S), (S, S, M), 0.6, 0.2, False),
-                  ((1,), (S, S, S), (S, S, M), 0.6, 0.2, True),
-                  ((), (S, S, S), (S, S, M), 1, 1, True),
-                  ((), (S, S, S), (S, S, M), 0.6, 0.2, True),
+    _M = S if kwargs.get("small_inputs_only", False) else M
+    _S = XS if kwargs.get("small_inputs_only", False) else S
+
+    test_cases = [((_S, _S, _M), (_S, _S, _S), (_S, _S, _M), 1, 1, False),
+                  ((1,), (_S, _S, _S), (_S, _S, _M), 1, 1, True),
+                  ((_S, _S, _M), (_S, _S, _S), (_S, _S, _M), 0.6, 0.2, False),
+                  ((1,), (_S, _S, _S), (_S, _S, _M), 0.6, 0.2, True),
+                  ((), (_S, _S, _S), (_S, _S, _M), 1, 1, True),
+                  ((), (_S, _S, _S), (_S, _S, _M), 0.6, 0.2, True),
                   ]
     sample_inputs = []
     for (input_shape, batch1_shape, batch2_shape, alpha, beta, broadcasts_input) in test_cases:
@@ -3233,7 +3242,7 @@ def sample_inputs_baddbmm(op_info, device, dtype, requires_grad, **kwargs):
                 broadcasts_input=broadcasts_input))
 
     if dtype.is_complex:
-        shapes = [(S, S, S), (S, M, S), (S, S, M)]
+        shapes = [(_S, _S, _S), (_S, _M, _S), (_S, _S, _M)]
         args = (make_tensor(shapes[0], dtype=dtype, device=device,
                             low=None, high=None,
                             requires_grad=requires_grad),
@@ -4559,11 +4568,11 @@ def sample_inputs_diff(op_info, device, dtype, requires_grad, **kwargs):
         ((S, S), 1, None, None),
         ((S, S), 0, (1, S), (2, S)),
         ((S, S), 0, None, (2, S)),
-        ((S, S, S), 1, None, None),
-        ((S, S, S), 2, None, None),
-        ((S, S, S), 1, (S, 1, S), (S, 1, S)),
-        ((S, S, S), 2, (S, S, 1), (S, S, 1)),
-        ((S, S, S), 2, (S, S, S), (S, S, S)),)
+        ((XS, XS, XS), 1, None, None),
+        ((XS, XS, XS), 2, None, None),
+        ((XS, XS, XS), 1, (XS, 1, XS), (XS, 1, XS)),
+        ((XS, XS, XS), 2, (XS, XS, 1), (XS, XS, 1)),
+        ((XS, XS, XS), 2, (XS, XS, XS), (XS, XS, XS)),)
 
     sample_inputs = []
     for size, dim, size_prepend, size_append in test_cases:
@@ -4577,8 +4586,8 @@ def sample_inputs_diff(op_info, device, dtype, requires_grad, **kwargs):
             sample_inputs.append(SampleInput(input_tensor, args=(n, dim, prepend, append,)))
 
     # add some samples with n > dim_size
-    sample_inputs.append(SampleInput(make_arg((S, S, S)), args=(S + 1, 1,)))
-    sample_inputs.append(SampleInput(make_arg((S, S, S)), args=(S * 3 + 2, 2, make_arg((S, S, S)), make_arg((S, S, S)),)))
+    sample_inputs.append(SampleInput(make_arg((XS, XS, XS)), args=(S + 1, 1,)))
+    sample_inputs.append(SampleInput(make_arg((XS, XS, XS)), args=(S * 3 + 2, 2, make_arg((XS, XS, XS)), make_arg((XS, XS, XS)),)))
 
     return sample_inputs
 
@@ -7665,10 +7674,10 @@ def sample_inputs_diagonal_diag_embed(op_info, device, dtype, requires_grad, **k
     make_arg = partial(make_tensor, dtype=dtype, device=device, requires_grad=requires_grad)
 
     # Shapes for 2D Tensors
-    shapes_2d = ((M, M), (3, 5), (5, 3))
+    shapes_2d = ((S, S), (3, 5), (5, 3))
 
     # Shapes for 3D Tensors
-    shapes_3d = ((M, M, M),)
+    shapes_3d = ((S, S, S),)
 
     kwargs_2d = (dict(), dict(offset=2), dict(offset=2), dict(offset=1))
     kwargs_3d = (dict(offset=1, dim1=1, dim2=2),
@@ -7965,20 +7974,23 @@ def sample_inputs_matrix_exp(op_info, device, dtype, requires_grad, **kwargs):
     return samples
 
 def sample_inputs_matmul(op_info, device, dtype, requires_grad, **kwargs):
-    test_cases = (((L,), (L,)),
-                  ((S, M), (M,)),
-                  ((M,), (M, S)),
-                  ((S, M), (M, S)),
-                  ((S, 0), (0, M)),
-                  ((S, S, M), (M,)),
-                  ((S, S, M), (M, S)),
-                  ((S, S, 0), (0, S)),
-                  ((M,), (S, M, S)),
-                  ((S, M), (S, M, S)),
-                  ((0, 0), (S, 0, 0)),
-                  ((S, S, M, M), (S, S, M, S)),
-                  ((S, S, M, M), (M,)),
-                  ((M,), (S, S, M, S)))
+    _L = S if kwargs.get("small_inputs_only", False) else M
+    _M = S if kwargs.get("small_inputs_only", False) else M
+    _S = XS if kwargs.get("small_inputs_only", False) else S
+    test_cases = (((_L,), (_L,)),
+                  ((_S, _M), (_M,)),
+                  ((_M,), (_M, _S)),
+                  ((_S, _M), (_M, _S)),
+                  ((_S, 0), (0, _M)),
+                  ((_S, _S, _M), (_M,)),
+                  ((_S, _S, _M), (_M, _S)),
+                  ((_S, _S, 0), (0, _S)),
+                  ((_M,), (_S, _M, _S)),
+                  ((_S, _M), (_S, _M, _S)),
+                  ((0, 0), (_S, 0, 0)),
+                  ((_S, _S, _M, _M), (_S, _S, _M, _S)),
+                  ((_S, _S, _M, _M), (_M,)),
+                  ((_M,), (_S, _S, _M, _S)))
     sample_inputs = []
     for lhs_shape, rhs_shape in test_cases:
         lhs = make_tensor(lhs_shape, dtype=dtype, device=device, low=None, high=None, requires_grad=requires_grad)
@@ -8695,8 +8707,9 @@ def sample_inputs_view_as_reshape_as(op_info, device, dtype, requires_grad, **kw
                 args=(make_arg(shape_other, requires_grad=False),)))
 
 def sample_inputs_atleast1d2d3d(op_info, device, dtype, requires_grad, **kwargs):
+    _S = XS if kwargs.get("small_inputs_only", False) else S
     input_list = []
-    shapes = ((S, S, S, S), (S, S, S), (S, S), (S, ), (),)
+    shapes = ((_S, _S, _S, _S), (_S, _S, _S), (_S, _S), (_S, ), (),)
     make_tensor_partial = partial(make_tensor, dtype=dtype, device=device, requires_grad=requires_grad)
     samples = []
     for shape in shapes:
@@ -11652,6 +11665,8 @@ op_db: List[OpInfo] = [
     OpInfo('diag_embed',
            dtypes=all_types_and_complex_and(torch.bool, torch.bfloat16, torch.float16, torch.chalf),
            supports_out=False,
+           # Runs very slowly on slow gradcheck - alternatively reduce input sizes
+           gradcheck_fast_mode=True,
            supports_forward_ad=True,
            supports_fwgrad_bwgrad=True,
            sample_inputs_func=sample_inputs_diagonal_diag_embed),
@@ -12126,6 +12141,8 @@ op_db: List[OpInfo] = [
            ],
            dtypes=floating_and_complex_types(),
            sample_inputs_func=sample_inputs_stft,
+           # Runs very slowly on slow gradcheck - alternatively reduce input sizes
+           gradcheck_fast_mode=True,
            supports_forward_ad=True,
            supports_fwgrad_bwgrad=True,
            check_batched_forward_grad=False,
@@ -12137,6 +12154,8 @@ op_db: List[OpInfo] = [
     OpInfo('istft',
            dtypes=floating_and_complex_types(),
            sample_inputs_func=sample_inputs_istft,
+           # Runs very slowly on slow gradcheck - alternatively reduce input sizes
+           gradcheck_fast_mode=True,
            supports_forward_ad=True,
            supports_fwgrad_bwgrad=True,
            check_batched_forward_grad=False,
@@ -12666,6 +12685,8 @@ op_db: List[OpInfo] = [
            dtypes=floating_and_complex_types(),
            sample_inputs_func=sample_inputs_linalg_lstsq,
            error_inputs_func=error_inputs_lstsq,
+           # Runs very slowly on slow gradcheck - alternatively reduce input sizes
+           gradcheck_fast_mode=True,
            supports_autograd=True,
            supports_forward_ad=True,
            supports_fwgrad_bwgrad=True,
@@ -12966,6 +12987,7 @@ op_db: List[OpInfo] = [
            op=torch.linalg.lu,
            dtypes=floating_and_complex_types(),
            # https://github.com/pytorch/pytorch/issues/80411
+           # Runs very slowly on slow-gradcheck - alternatively reduce input sizes
            gradcheck_fast_mode=True,
            supports_forward_ad=True,
            supports_fwgrad_bwgrad=True,
@@ -12974,6 +12996,8 @@ op_db: List[OpInfo] = [
     OpInfo('lu_unpack',
            op=torch.lu_unpack,
            dtypes=floating_and_complex_types(),
+           # Runs very slowly on slow gradcheck - alternatively reduce input sizes
+           gradcheck_fast_mode=True,
            supports_forward_ad=True,
            supports_fwgrad_bwgrad=True,
            skips=(skipCPUIfNoLapack,),
@@ -13023,6 +13047,8 @@ op_db: List[OpInfo] = [
            op=torch.linalg.lu_solve,
            aten_name='linalg_lu_solve',
            dtypes=floating_and_complex_types(),
+           # Runs very slowly on slow gradcheck - alternatively reduce input sizes
+           gradcheck_fast_mode=True,
            supports_forward_ad=True,
            check_batched_forward_grad=False,
            supports_fwgrad_bwgrad=True,
@@ -13796,6 +13822,8 @@ op_db: List[OpInfo] = [
            sample_inputs_func=sample_inputs_conv_transpose3d,
            supports_forward_ad=True,
            supports_fwgrad_bwgrad=True,
+           # Runs very slowly on slow-gradcheck - alternatively reduce input sizes
+           gradcheck_fast_mode=True,
            gradcheck_nondet_tol=GRADCHECK_NONDET_TOL,
            decorators=[
                DecorateInfo(
@@ -13959,6 +13987,8 @@ op_db: List[OpInfo] = [
     OpInfo('nn.functional.pad',
            variant_test_name='constant',
            aten_name='constant_pad_nd',
+           # Runs very slowly on slow gradcheck - alternatively reduce input sizes
+           gradcheck_fast_mode=True,
            supports_forward_ad=True,
            supports_fwgrad_bwgrad=True,
            dtypes=all_types_and_complex_and(torch.bool, torch.bfloat16, torch.half),
@@ -14029,6 +14059,8 @@ op_db: List[OpInfo] = [
            dtypes=floating_and_complex_types_and(torch.half, torch.bfloat16),
            dtypesIfCUDA=floating_and_complex_types_and(torch.half),
            sample_inputs_func=sample_inputs_nn_unfold,
+           # Runs very slowly on slow gradcheck - alternatively reduce input sizes
+           gradcheck_fast_mode=True,
            supports_forward_ad=True,
            supports_fwgrad_bwgrad=True,
            supports_out=False,
@@ -14327,7 +14359,8 @@ op_db: List[OpInfo] = [
            sample_inputs_func=sample_inputs_max_pool),
     OpInfo('nn.functional.max_pool2d',
            aten_name='max_pool2d',
-           supports_autograd=True,
+           # Runs very slowly on slow gradcheck - alternatively reduce input sizes
+           gradcheck_fast_mode=True,
            # Vmap is not happy with non-contiguous (channels_last) inputs
            check_batched_gradgrad=False,
            supports_out=False,
@@ -14341,7 +14374,8 @@ op_db: List[OpInfo] = [
            sample_inputs_func=sample_inputs_max_pool),
     OpInfo('nn.functional.max_pool3d',
            aten_name='max_pool3d',
-           supports_autograd=True,
+           # Runs very slowly on slow gradcheck - alternatively reduce input sizes
+           gradcheck_fast_mode=True,
            supports_out=False,
            supports_forward_ad=True,
            supports_fwgrad_bwgrad=True,
@@ -14486,6 +14520,8 @@ op_db: List[OpInfo] = [
                DecorateInfo(unittest.skip("Skipped!"), 'TestCommon', 'test_dtypes', device_type='cuda', active_if=not SM53OrLater),
                DecorateInfo(unittest.skip("Skipped!"), 'TestNNCOpInfo', 'test_nnc_correctness', dtypes=(torch.bfloat16,)),
            ),
+           # Runs very slowly on slow gradcheck - alternatively reduce input sizes
+           gradcheck_fast_mode=True,
            supports_forward_ad=True,
            supports_fwgrad_bwgrad=True,
            supports_out=False),
@@ -15206,6 +15242,8 @@ op_db: List[OpInfo] = [
     OpInfo('dist',
            op=torch.dist,
            dtypes=floating_and_complex_types_and(torch.half, torch.bfloat16),
+           # Runs very slowly on slow gradcheck - alternatively reduce input sizes
+           gradcheck_fast_mode=True,
            supports_out=False,
            supports_forward_ad=True,
            # torch.autograd.gradcheck.GradcheckError: While computing batched gradients, got:
@@ -15378,6 +15416,8 @@ op_db: List[OpInfo] = [
         "rot90",
         dtypes=all_types_and_complex_and(torch.bool, torch.bfloat16, torch.half),
         error_inputs_func=error_inputs_rot90,
+        # Runs very slowly on slow gradcheck - alternatively reduce input sizes
+        gradcheck_fast_mode=True,
         supports_out=False,
         supports_forward_ad=True,
         supports_fwgrad_bwgrad=True,
@@ -16329,6 +16369,8 @@ op_db: List[OpInfo] = [
            op=torch.svd,
            dtypes=floating_and_complex_types(),
            sample_inputs_func=sample_inputs_svd,
+           # Runs very slowly on slow-gradcheck - alternatively reduce input sizes
+           gradcheck_fast_mode=True,
            supports_forward_ad=True,
            supports_fwgrad_bwgrad=True,
            check_batched_forward_grad=False,
@@ -16348,6 +16390,8 @@ op_db: List[OpInfo] = [
            op=torch.linalg.svd,
            aten_name='linalg_svd',
            dtypes=floating_and_complex_types(),
+           # Runs very slowly on slow-gradcheck - alternatively reduce input sizes
+           gradcheck_fast_mode=True,
            supports_fwgrad_bwgrad=True,
            supports_forward_ad=True,
            check_batched_forward_grad=False,
@@ -16381,6 +16425,8 @@ op_db: List[OpInfo] = [
                *args, **kwargs
            ),
            dtypes=floating_types(),
+           # Runs very slowly on slow gradcheck - alternatively reduce input sizes
+           gradcheck_fast_mode=True,
            supports_out=False,
            check_batched_grad=False,
            check_batched_gradgrad=False,
@@ -16403,6 +16449,8 @@ op_db: List[OpInfo] = [
                *args, **kwargs
            ),
            dtypes=floating_types(),
+           # Runs very slowly on slow gradcheck - alternatively reduce input sizes
+           gradcheck_fast_mode=True,
            supports_out=False,
            check_batched_forward_grad=False,
            check_batched_grad=False,
@@ -17729,6 +17777,8 @@ op_db: List[OpInfo] = [
     OpInfo('mT',
            op=lambda x: x.mT,
            dtypes=all_types_and_complex_and(torch.bool, torch.bfloat16, torch.half, torch.chalf),
+           # Runs very slowly on slow gradcheck - alternatively reduce input sizes
+           gradcheck_fast_mode=True,
            supports_out=False,
            supports_forward_ad=True,
            supports_fwgrad_bwgrad=True,
@@ -17741,6 +17791,8 @@ op_db: List[OpInfo] = [
            op=lambda x: x.mH,
            aliases=('adjoint',),
            dtypes=all_types_and_complex_and(torch.bool, torch.bfloat16, torch.half, torch.chalf),
+           # Runs very slowly on slow gradcheck - alternatively reduce input sizes
+           gradcheck_fast_mode=True,
            supports_out=False,
            supports_forward_ad=True,
            supports_fwgrad_bwgrad=True,
@@ -17766,6 +17818,8 @@ op_db: List[OpInfo] = [
     OpInfo('kron',
            dtypes=all_types_and_complex_and(torch.bool, torch.half, torch.bfloat16),
            dtypesIfCUDA=all_types_and_complex_and(torch.bool, torch.half, torch.bfloat16),
+           # Runs very slowly on slow gradcheck - alternatively reduce input sizes
+           gradcheck_fast_mode=True,
            supports_inplace_autograd=False,
            supports_forward_ad=True,
            supports_fwgrad_bwgrad=True,
@@ -18414,6 +18468,8 @@ op_db: List[OpInfo] = [
             DecorateInfo(unittest.expectedFailure, 'TestGradients', "test_forward_mode_AD"),
             DecorateInfo(unittest.expectedFailure, 'TestGradients', "test_inplace_forward_mode_AD"),),
         gradcheck_wrapper=wrapper_set_seed,
+        # Runs very slowly on slow gradcheck - alternatively reduce input sizes
+        gradcheck_fast_mode=True,
         supports_forward_ad=True,
         supports_fwgrad_bwgrad=True,
         supports_out=False,
@@ -18972,6 +19028,8 @@ op_db: List[OpInfo] = [
         dtypes=all_types_and_complex_and(torch.bfloat16),
         dtypesIfCUDA=all_types_and_complex_and(torch.float16, torch.bfloat16),
         method_variant=None,
+        # Runs very slowly on slow gradcheck - alternatively reduce input sizes
+        gradcheck_fast_mode=True,
         supports_out=False,
         supports_forward_ad=True,
         supports_fwgrad_bwgrad=True,
@@ -18989,6 +19047,8 @@ op_db: List[OpInfo] = [
         dtypes=all_types_and_complex_and(torch.bfloat16),
         dtypesIfCUDA=all_types_and_complex_and(torch.float16, torch.bfloat16),
         method_variant=None,
+        # Runs very slowly on slow gradcheck - alternatively reduce input sizes
+        gradcheck_fast_mode=True,
         supports_out=False,
         supports_forward_ad=True,
         supports_fwgrad_bwgrad=True,
@@ -19304,6 +19364,8 @@ op_db: List[OpInfo] = [
                          device_type='cpu', dtypes=[torch.half]),
         ),
         gradcheck_wrapper=gradcheck_wrapper_masked_operation,
+        # Runs very slowly on slow gradcheck - alternatively reduce input sizes
+        gradcheck_fast_mode=True,
         supports_forward_ad=True,
         supports_fwgrad_bwgrad=True,
         supports_out=False),
@@ -19415,6 +19477,8 @@ op_db: List[OpInfo] = [
         ref=_NOTHING,
         dtypes=floating_types_and(torch.bfloat16),
         dtypesIfCUDA=floating_types_and(torch.float16, torch.bfloat16),
+        # Runs very slowly on slow gradcheck - alternatively reduce input sizes
+        gradcheck_fast_mode=True,
         supports_out=False,
         supports_forward_ad=True,
         supports_fwgrad_bwgrad=True,
