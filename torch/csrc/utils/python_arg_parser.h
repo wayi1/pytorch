@@ -671,10 +671,20 @@ inline c10::optional<at::ScalarType> PythonArgs::scalartypeOptional(int i) {
   return scalartype(i);
 }
 
+inline at::Layout toLayout(PyObject* obj) {
+  if (THPLayout_Check(obj)) {
+    const auto layout = reinterpret_cast<THPLayout*>(obj);
+    return layout->layout;
+  }
+  const auto layout = THPUtils_unpackLong(obj);
+  TORCH_CHECK(layout >= 0, "Layout must not be negative");
+  return static_cast<at::Layout>(layout);
+}
+
 inline at::Layout PythonArgs::layout(int i) {
   if (!args[i])
     return signature.params[i].default_layout;
-  return reinterpret_cast<THPLayout*>(args[i])->layout;
+  return toLayout(args[i]);
 }
 
 inline at::Layout PythonArgs::layoutWithDefault(
