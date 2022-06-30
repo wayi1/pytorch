@@ -6295,6 +6295,22 @@ def sample_inputs_nn_pad(op_info, device, dtype, requires_grad, mode, **kwargs):
                 yield SampleInput(make_inp(shape), args=(pad, mode, pad_value))
 
 
+def sample_inputs_constant_pad_nd(op_info, device, dtype, *args, **kwargs):
+    nn_samples = sample_inputs_nn_pad(op_info, device, dtype, *args,
+                                      mode='constant', **kwargs)
+    from torch._prims.utils import dtype_to_type
+    scalar_type = dtype_to_type(dtype)
+
+    def drop_mode_argument(input, pad, mode=None, value=None):
+        if value is None:
+            return SampleInput(input, args=(pad,))
+        else:
+            return SampleInput(input, args=(pad, scalar_type(value)))
+
+    for sample in nn_samples:
+        yield drop_mode_argument(sample.input, *sample.args, **sample.kwargs)
+
+
 # TODO: reconcile with torch.linalg.det and torch.linalg.slogdet
 # Creates matrices with a positive nonzero determinant
 def sample_inputs_logdet(op_info, device, dtype, requires_grad, **kwargs):
@@ -13906,6 +13922,12 @@ op_db: List[OpInfo] = [
                             'TestCudaFuserOpInfo', 'test_nvfuser_correctness'),
            ],
            sample_inputs_func=sample_inputs_local_response_norm,),
+    OpInfo('constant_pad_nd',
+           supports_forward_ad=True,
+           supports_fwgrad_bwgrad=True,
+           dtypes=all_types_and_complex_and(torch.bool, torch.bfloat16, torch.half),
+           sample_inputs_func=sample_inputs_constant_pad_nd,
+           supports_out=False),
     OpInfo('nn.functional.pad',
            variant_test_name='constant',
            aten_name='constant_pad_nd',
@@ -20927,6 +20949,11 @@ python_ref_db = [
     ElementwiseUnaryPythonRefInfo(
         "_refs.conj",
         torch_opinfo_name="conj",
+        supports_nvfuser=False,
+    ),
+    PythonRefInfo(
+        "_refs.constant_pad_nd",
+        torch_opinfo_name="constant_pad_nd",
         supports_nvfuser=False,
     ),
     PythonRefInfo(
