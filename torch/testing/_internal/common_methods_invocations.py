@@ -20740,11 +20740,16 @@ python_ref_db = [
         "_refs.pow",
         torch_opinfo_name="pow",
         skips=(
+            # For the complex32:
             # Reference result was farther (inf) from the precise
             # computation than the torch result was (nan)!
+            #
+            # For the int32:
+            # RuntimeError: entry_it != disjointSetMap().end() INTERNAL ASSERT FAILED
+            # at "/var/lib/jenkins/workspace/torch/csrc/jit/codegen/cuda/disjoint_set.h":218
             DecorateInfo(
                 unittest.expectedFailure, 'TestCommon', 'test_python_ref_executor',
-                dtypes=(torch.complex32,),
+                dtypes=(torch.complex32, torch.int32),
             ),
             # Reference result was farther (inf) from the precise
             # computation than the torch result was (nan)!
