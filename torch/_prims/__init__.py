@@ -1921,7 +1921,7 @@ def _clone_aten(a: Tensor, *, memory_format: torch.memory_format) -> Tensor:
 
 
 _clone_doc = """
-    Creates a copy of a tensors.
+    Creates a copy of a tensor.
 """
 
 clone = _make_prim(
@@ -1987,7 +1987,7 @@ def _device_put_meta(
     assert isinstance(a, TensorLike)
     assert isinstance(device, (str, torch.device))
 
-    return TensorMeta(a, device=utils.wrap_device(device))
+    return TensorMeta(a, device=utils.canonicalize_device(device))
 
 
 def _device_put_aten(a: Tensor, device: Union[str, torch.device]) -> Tensor:
