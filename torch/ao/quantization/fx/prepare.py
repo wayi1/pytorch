@@ -5,6 +5,7 @@ import warnings
 from torch.fx import (
     GraphModule,
 )
+from torch.fx.experimental.normalize import NormalizeArgs
 from torch.fx.graph import (
     Graph,
     Node,
@@ -65,17 +66,20 @@ from .match_utils import (
     find_matches,
 )
 
-from ..utils import _parent_name
 from .utils import (
     get_custom_module_class_keys,
     all_node_args_have_no_tensors,
     assert_and_get_unique_device,
     get_non_observable_arg_indexes_and_types,
     get_new_attr_name_with_prefix,
+    get_all_args_as_positional_args,
     NON_QUANTIZABLE_WEIGHT_OPS,
     WEIGHT_INDEX_DICT,
     BIAS_INDEX_DICT,
+    get_skipped_module_name_and_classes,
 )
+
+from .tracer import QuantizationTracer
 
 from torch.ao.quantization.quantize import (
     is_activation_post_process,
@@ -83,6 +87,7 @@ from torch.ao.quantization.quantize import (
 )
 
 from ..utils import (
+    _parent_name,
     get_qconfig_dtypes,
     get_swapped_custom_module_class,
     activation_is_statically_quantized,
@@ -148,6 +153,74 @@ __all__ = [
 
 # list of dtypes to not add observers to
 DO_NOT_OBS_DTYPE_LIST = [int, float, torch.bool, None]
+
+def _move_all_kwargs_to_args(model: GraphModule) -> GraphModule:
+    for n in model.graph.nodes:
+        n.args = tuple(get_all_args_as_positional_args(n))
+        n.kwargs = {}
+    return model
+
+def _cleanup_args(model: GraphModule) -> GraphModule:
+    """ This pass removes some unused arguments
+    * inplace argument for F.relu and torch.relu since we use them
+    in pattern matching which assumes that relu only has one argument
+    """
+    for n in model.graph.nodes:
+        # remove inplace arg from relu
+        if n.op == "call_function" and n.target in (torch.nn.functional.relu, torch.relu):
+            # ignore the inplace op since that will interfere with node
+            # matching
+            n.args = (n.args[0],)
+            n.kwargs = {}
+    return model
+
+def _normalize_args_for_model(
+        model: GraphModule,
+        prepare_custom_config: PrepareCustomConfig,
+        is_standalone_module: bool) -> Tuple[GraphModule, Dict[str, Tuple[str, type]]]:
+    """ Normalize the arguments for nodes in a GraphModule to be keyword arguments,
+    and then move all keyword arguments to be positional arguments
+
+    Args:
+        model (GraphModule): the model to apply argument normalization
+        prepare_custom_config (PrepareCustomConfig): custom config for prepare function,
+        we need to know preserved_attributes so that these attributes won't get lost
+        during this process
+        is_standalone_module (bool): a flag indicates whether we are running prepare function
+        for a standalone module or not (TODO): should we remove this flag? since
+        prepare custom config for standalone module and non-standalone module are not
+        shared
+
+    Returns:
+        model (GraphModule): the model with normalized args
+        node_name_to_scope: the updated dictionary from node_name to the scope of
+        the node (module_name and type containing the node)
+    """
+    # record the preserved attributes in a dictionary so that it won't get lost
+    # during NormalizeArgs and retracing with QuantizationTracer
+    preserved_attribute_names = prepare_custom_config.preserved_attributes
+    preserved_attributes = {}
+    for attr_name in preserved_attribute_names:
+        preserved_attributes[attr_name] = getattr(model, attr_name)
+
+    # normalize the arguments of module/functions to be kwargs in positional order
+    # this depends on operator_schema from torchscript, we may want to replace
+    # this with something more robust by using real example_inputs in the future
+    model = NormalizeArgs(model).transform()
+
+    # redo tracing to update node_name_to_scope
+    skipped_module_names, skipped_module_classes = \
+        get_skipped_module_name_and_classes(prepare_custom_config, is_standalone_module)
+    # symbolically trace the model
+    tracer = QuantizationTracer(skipped_module_names, skipped_module_classes)  # type: ignore[arg-type]
+    retraced_model = GraphModule(model, tracer.trace(model))
+    for attr_name in preserved_attribute_names:
+        setattr(retraced_model, attr_name, preserved_attributes[attr_name])
+    model = retraced_model
+
+    model = _move_all_kwargs_to_args(model)
+    model = _cleanup_args(model)
+    return model, tracer.node_name_to_scope
 
 def is_activation_post_process_node(node: Node, modules: Dict[str, torch.nn.Module]) -> bool:
     return isinstance(node, torch.fx.Node) and node.op == "call_module" and \
@@ -572,7 +645,11 @@ def maybe_insert_input_observer_for_arg_or_kwarg(
             # qconfig_dict and backend_config_dict to support more general configurations
             # of dynamic quantization, e.g. dynamically quantizing second input, third
             # input etc.
-            (arg_as_input_target_compute_dtype in [torch.quint8, torch.int8, torch.float16]) and arg is node.args[0]
+            (arg_as_input_target_compute_dtype in [
+                torch.quint8,
+                torch.int8,
+                torch.float16]
+             ) and arg is node.args[0]
         )
 
     else:
@@ -735,6 +812,7 @@ def maybe_insert_input_equalization_observers_for_node(
 
     # assign the new args and kwargs to the node, inplace
     node.args = tuple(new_args)
+    node.kwargs = {}
 
 def maybe_insert_output_observer_for_node(
     node: Node,
@@ -1506,7 +1584,15 @@ def prepare(
     root_node_getter_mapping = \
         get_fusion_pattern_to_root_node_getter(backend_config_dict)
 
+    # print("before normalization:", model)
+    # model, _ = _normalize_args_for_model(model, prepare_custom_config, is_standalone_module)
+    model = NormalizeArgs(model).transform()
+    model = _move_all_kwargs_to_args(model)
+    model = _cleanup_args(model)
+    # print("after normalization:", model)
+
     update_qconfig_for_fusion(model, qconfig_mapping)
+    # print("updated qconfig_mapping:", qconfig_mapping.to_dict())
     update_qconfig_for_fusion(model, _equalization_config)
     flattened_qconfig_dict = get_flattened_qconfig_dict(qconfig_mapping)
     # TODO: support regex as well
@@ -1515,7 +1601,7 @@ def prepare(
     if is_qat:
         module_to_qat_module = get_module_to_qat_module(backend_config_dict)
         qat_swap_modules(model, module_to_qat_module)
-        update_qconfig_for_qat(qconfig_mapping, {})
+        update_qconfig_for_qat(qconfig_mapping, module_to_qat_module)
 
     # mapping from fully qualified module name to module instance
     # for example,
